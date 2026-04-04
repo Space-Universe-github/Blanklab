@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Blank Labs — Private Research Network</title>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant:ital,wght@0,300;0,400;1,300;1,400&family=DM+Mono:ital,wght@0,300;0,400;1,300&family=Barlow+Condensed:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--paper:#F2EEE6;--paper-dark:#E8E3D8;--ink:#0E0F0D;--ink-mid:#4A4A44;--ink-dim:#9A9890;--rule:#C8C4B8;--rule-dark:#A8A49A;--teal:#2E5C58;--teal-light:#4A8A84;--teal-pale:#D4E8E6;--red:#8B2020;--serif:'Cormorant',Georgia,serif;--cond:'Barlow Condensed',sans-serif;--mono:'DM Mono','Courier New',monospace;}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html{font-size:16px;}
+body{background:var(--paper);color:var(--ink);font-family:var(--serif);overflow-x:hidden;}
+body::before{content:'';position:fixed;inset:0;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");opacity:0.04;pointer-events:none;z-index:9999;}
+/* NAV */
+.nav{position:fixed;top:0;left:0;right:0;z-index:800;background:var(--paper);border-bottom:1px solid var(--rule);display:flex;align-items:center;justify-content:space-between;padding:0 48px;height:56px;}
+.nav-logo{font-family:var(--cond);font-size:15px;font-weight:600;letter-spacing:0.22em;text-transform:uppercase;cursor:pointer;background:none;border:none;color:var(--ink);font-family:var(--cond);}
+.nav-links{display:flex;align-items:center;gap:32px;}
+.nav-link{font-family:var(--mono);font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:var(--ink-dim);cursor:pointer;background:none;border:none;transition:color 0.15s;}
+.nav-link:hover{color:var(--ink);}
+.nav-login{font-family:var(--mono);font-size:10px;letter-spacing:0.16em;text-transform:uppercase;color:var(--paper);background:var(--ink);border:none;padding:10px 22px;cursor:pointer;transition:background 0.15s;}
+.nav-login:hover{background:var(--teal);}
+/* TICKER */
+.ticker{position:fixed;top:56px;left:0;right:0;z-index:700;background:var(--ink);height:28px;overflow:hidden;display:flex;align-items:center;}
+.ticker-track{display:flex;white-space:nowrap;animation:tick 32s linear infinite;}
+@keyframes tick{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+.ticker-item{font-family:var(--mono);font-size:9.5px;letter-spacing:0.18em;text-transform:uppercase;color:rgba(255,255,255,0.38);padding:0 28px;}
+.ticker-item.hi{color:rgba(255,255,255,0.75);}
+.ticker-sep{color:rgba(255,255,255,0.18);padding:0 4px;font-size:8px;}
+main{padding-top:84px;}
+/* HERO */
+.hero{display:grid;grid-template-columns:1fr 400px;min-height:calc(100vh - 84px);border-bottom:1px solid var(--rule);}
+.hero-left{padding:64px;display:flex;flex-direction:column;justify-content:space-between;border-right:1px solid var(--rule);}
+.overline{font-family:var(--mono);font-size:10px;letter-spacing:0.25em;text-transform:uppercase;color:var(--ink-dim);display:flex;align-items:center;gap:10px;margin-bottom:20px;}
+.overline::before{content:'';width:20px;height:1px;background:var(--rule-dark);}
+.headline{font-family:var(--cond);font-size:clamp(72px,9vw,124px);font-weight:300;letter-spacing:-0.01em;line-height:0.92;text-transform:uppercase;margin-bottom:44px;}
+.headline em{font-style:italic;color:var(--teal);}
+.hero-desc{font-family:var(--serif);font-size:15px;line-height:1.8;color:var(--ink-mid);max-width:440px;margin-bottom:16px;}
+.hero-tagline{font-family:var(--cond);font-size:13px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:var(--ink-dim);}
+.hero-bottom{display:flex;align-items:flex-end;justify-content:space-between;padding-top:40px;}
+.stats{display:flex;gap:44px;}
+.stat{display:flex;flex-direction:column;gap:4px;}
+.stat-num{font-family:var(--cond);font-size:36px;font-weight:300;letter-spacing:-0.02em;line-height:1;}
+.stat-lbl{font-family:var(--mono);font-size:9px;letter-spacing:0.18em;text-transform:uppercase;color:var(--ink-dim);}
+.hero-meta{font-family:var(--mono);font-size:9px;color:var(--ink-dim);letter-spacing:0.1em;text-align:right;line-height:2.2;text-transform:uppercase;}
+.hero-meta span{color:var(--teal-light);}
+.hero-right{padding:64px 48px;display:flex;flex-direction:column;justify-content:space-between;background:var(--paper-dark);}
+.invite-label{font-family:var(--mono);font-size:10px;letter-spacing:0.25em;text-transform:uppercase;color:var(--ink-dim);margin-bottom:18px;}
+.invite-body{font-family:var(--serif);font-size:14px;line-height:1.85;color:var(--ink-mid);flex:1;padding-bottom:32px;}
+.invite-form{display:flex;flex-direction:column;gap:11px;}
+.f-lbl{font-family:var(--mono);font-size:9px;letter-spacing:0.2em;text-transform:uppercase;color:var(--ink-dim);display:block;margin-bottom:5px;}
+.f-input{width:100%;background:var(--paper);border:1px solid var(--rule-dark);color:var(--ink);font-family:var(--mono);font-size:12px;padding:11px 13px;outline:none;transition:border-color 0.2s;-webkit-appearance:none;}
+.f-input::placeholder{color:var(--ink-dim);}
+.f-input:focus{border-color:var(--teal);}
+.f-input.err{border-color:var(--red);}
+.submit-btn{width:100%;background:var(--teal);color:var(--paper);border:none;font-family:var(--cond);font-size:13px;font-weight:500;letter-spacing:0.25em;text-transform:uppercase;padding:13px;cursor:pointer;transition:background 0.15s;margin-top:4px;}
+.submit-btn:hover{background:var(--ink);}
+.submit-btn.loading{opacity:0.55;cursor:not-allowed;}
+.f-status{font-family:var(--mono);font-size:10px;letter-spacing:0.08em;min-height:14px;}
+.f-status.ok{color:var(--teal);}
+.f-status.err{color:var(--red);}
+.f-status.wait{color:var(--ink-dim);}
+.invite-fine{font-family:var(--mono);font-size:9px;color:var(--ink-dim);letter-spacing:0.06em;line-height:1.8;border-top:1px solid var(--rule);padding-top:14px;margin-top:6px;}
+/* INFO STRIP */
+.info-strip{display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1px solid var(--rule);}
+.info-cell{padding:30px 36px;border-right:1px solid var(--rule);display:flex;flex-direction:column;gap:7px;}
+.info-cell:last-child{border-right:none;}
+.ic-lbl{font-family:var(--mono);font-size:9px;letter-spacing:0.2em;text-transform:uppercase;color:var(--ink-dim);}
+.ic-val{font-family:var(--cond);font-size:20px;font-weight:400;letter-spacing:0.04em;}
+.ic-val.teal{color:var(--teal);}
+.ic-sub{font-family:var(--serif);font-size:12px;color:var(--ink-dim);font-style:italic;line-height:1.5;}
+/* ABOUT */
+.about-section{display:grid;grid-template-columns:260px 1fr;border-bottom:1px solid var(--rule);}
+.about-sidebar{padding:56px 36px;border-right:1px solid var(--rule);display:flex;flex-direction:column;justify-content:space-between;}
+.sec-num{font-family:var(--mono);font-size:9px;letter-spacing:0.25em;color:var(--ink-dim);text-transform:uppercase;}
+.sidebar-big{font-family:var(--cond);font-size:88px;font-weight:300;color:var(--rule-dark);line-height:1;letter-spacing:-0.02em;user-select:none;}
+.about-main{padding:56px 60px;display:grid;grid-template-columns:1fr 1fr;gap:44px;}
+.ab-title{font-family:var(--cond);font-size:18px;font-weight:500;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--rule);}
+.ab-body{font-family:var(--serif);font-size:14px;line-height:1.85;color:var(--ink-mid);}
+/* FOOTER */
+.site-footer{border-top:1px solid var(--rule);padding:30px 48px;display:flex;align-items:center;justify-content:space-between;}
+.foot-l,.foot-r{font-family:var(--mono);font-size:9px;letter-spacing:0.12em;color:var(--ink-dim);line-height:2.2;text-transform:uppercase;}
+.foot-r{text-align:right;}
+.foot-r span{color:var(--teal-light);}
+/* LOGIN OVERLAY */
+.overlay{position:fixed;inset:0;z-index:900;background:var(--paper);display:flex;flex-direction:column;opacity:0;pointer-events:none;transition:opacity 0.3s;overflow-y:auto;}
+.overlay.open{opacity:1;pointer-events:all;}
+.ov-topbar{display:flex;align-items:center;justify-content:space-between;padding:0 48px;height:56px;border-bottom:1px solid var(--rule);flex-shrink:0;background:var(--paper);position:sticky;top:0;z-index:10;}
+.ov-title{font-family:var(--mono);font-size:10px;letter-spacing:0.22em;text-transform:uppercase;color:var(--ink-dim);display:flex;align-items:center;gap:8px;}
+.ov-dot{width:5px;height:5px;border-radius:50%;background:var(--teal);animation:bdot 2.4s ease infinite;}
+@keyframes bdot{0%,100%{opacity:1}50%{opacity:0.15}}
+.ov-close{font-family:var(--mono);font-size:10px;letter-spacing:0.18em;text-transform:uppercase;color:var(--ink-dim);cursor:pointer;background:none;border:none;transition:color 0.15s;}
+.ov-close:hover{color:var(--ink);}
+.login-wrap{flex:1;display:grid;grid-template-columns:1fr 460px 1fr;align-items:start;padding:60px 0 80px;}
+.login-card{grid-column:2;border:1px solid var(--rule-dark);display:flex;flex-direction:column;}
+.lc-head{padding:26px 30px;border-bottom:1px solid var(--rule);background:var(--paper-dark);}
+.lc-title{font-family:var(--cond);font-size:22px;font-weight:500;letter-spacing:0.12em;text-transform:uppercase;margin-bottom:14px;}
+.tok-lbl{font-family:var(--mono);font-size:9px;letter-spacing:0.2em;text-transform:uppercase;color:var(--ink-dim);margin-bottom:6px;}
+.tok-val{font-family:var(--mono);font-size:11px;letter-spacing:0.1em;color:var(--teal);word-break:break-all;line-height:1.75;background:var(--paper);border:1px solid var(--rule);padding:10px 14px;position:relative;overflow:hidden;}
+.tok-val::after{content:'';position:absolute;top:0;left:-100%;right:-100%;height:1px;background:linear-gradient(90deg,transparent,var(--teal-light),transparent);animation:swipe 4.5s ease infinite;opacity:0.5;}
+@keyframes swipe{0%{transform:translateY(0);opacity:0}12%{opacity:0.5}88%{opacity:0.5}100%{transform:translateY(42px);opacity:0}}
+.lc-body{padding:26px 30px;display:flex;flex-direction:column;gap:16px;}
+.l-err{font-family:var(--mono);font-size:10px;letter-spacing:0.08em;color:var(--red);min-height:14px;}
+.login-btn{width:100%;background:var(--ink);color:var(--paper);border:none;font-family:var(--cond);font-size:13px;font-weight:500;letter-spacing:0.25em;text-transform:uppercase;padding:13px;cursor:pointer;transition:background 0.15s;margin-top:4px;}
+.login-btn:hover{background:var(--teal);}
+.login-btn.loading{opacity:0.5;cursor:not-allowed;}
+.lc-foot{padding:16px 30px;border-top:1px solid var(--rule);background:var(--paper-dark);font-family:var(--mono);font-size:9px;letter-spacing:0.08em;color:var(--ink-dim);line-height:2;}
+@media(max-width:900px){.hero{grid-template-columns:1fr}.hero-right{border-top:1px solid var(--rule)}.info-strip{grid-template-columns:1fr 1fr}.about-section{grid-template-columns:1fr}.about-sidebar{display:none}.about-main{grid-template-columns:1fr}.login-wrap{grid-template-columns:24px 1fr 24px}.nav{padding:0 24px}.hero-left,.hero-right{padding:40px 28px}}
+</style>
+</head>
+<body>
+<nav class="nav">
+  <button class="nav-logo" onclick="closeAll()">Blank Labs</button>
+  <div class="nav-links">
+    <button class="nav-link" onclick="closeAll();scrollTo(0,0)">Overview</button>
+    <button class="nav-link" onclick="closeAll();document.getElementById('invEmail').focus()">Request Access</button>
+    <button class="nav-link" onclick="closeAll();document.querySelector('.about-section').scrollIntoView({behavior:'smooth'})">About</button>
+    <button class="nav-login" onclick="openLogin()">Log In &rarr;</button>
+  </div>
+</nav>
+<div class="ticker"><div class="ticker-track" id="tickerTrack"></div></div>
+<main>
+  <section class="hero">
+    <div class="hero-left">
+      <div>
+        <div class="overline">Private Research Network</div>
+        <h1 class="headline">Blank<br><em>Labs</em></h1>
+        <p class="hero-desc">A closed infrastructure for collaborative research and secure coordination. Membership is not open to the public. All access is granted by verified invitation only.</p>
+        <div class="hero-tagline">Solutions. Infrastructure. Access.</div>
+      </div>
+      <div class="hero-bottom">
+        <div class="stats">
+          <div class="stat"><span class="stat-num" id="visitNum">—</span><span class="stat-lbl">Page Visits</span></div>
+          <div class="stat"><span class="stat-num" id="memberNum">—</span><span class="stat-lbl">Members</span></div>
+          <div class="stat"><span class="stat-num">3</span><span class="stat-lbl">Active Nodes</span></div>
+        </div>
+        <div class="hero-meta">Session <span id="sidTag">—</span><br><span id="localClock">—</span></div>
+      </div>
+    </div>
+    <div class="hero-right">
+      <div>
+        <div class="invite-label">— Request Access</div>
+        <p class="invite-body">Blank Labs does not advertise openings. If you have received a referral or were directed here by a current member, you may submit your address below.<br><br>Submissions are reviewed on a rolling basis. There is no confirmation email. You will be contacted only if approved.</p>
+      </div>
+      <div class="invite-form">
+        <div><label class="f-lbl" for="invEmail">Email Address</label><input class="f-input" type="email" id="invEmail" placeholder="name@domain.tld" autocomplete="off"></div>
+        <div><label class="f-lbl" for="invRef">Referral Code (optional)</label><input class="f-input" type="text" id="invRef" placeholder="BL-XXXX-XXXX" autocomplete="off"></div>
+        <button class="submit-btn" id="invBtn" onclick="submitInvite()">Submit Request</button>
+        <div class="f-status" id="invStatus"></div>
+        <div class="invite-fine">By submitting, you acknowledge this platform is private. Unauthorized access attempts are permanently logged. Blank Labs reserves all rights.</div>
+      </div>
+    </div>
+  </section>
+  <section class="info-strip">
+    <div class="info-cell"><div class="ic-lbl">Network Status</div><div class="ic-val teal">OPERATIONAL</div><div class="ic-sub">All nodes responding normally</div></div>
+    <div class="info-cell"><div class="ic-lbl">Clearance Level</div><div class="ic-val">PUBLIC / L0</div><div class="ic-sub">You are viewing the public index</div></div>
+    <div class="info-cell"><div class="ic-lbl">Founded</div><div class="ic-val">2021</div><div class="ic-sub">Private, undisclosed jurisdiction</div></div>
+    <div class="info-cell"><div class="ic-lbl">Access Period</div><div class="ic-val" id="accessPeriod">—</div><div class="ic-sub">Quarterly access windows apply</div></div>
+  </section>
+  <section class="about-section">
+    <div class="about-sidebar">
+      <div class="sec-num">§ 01 — About</div>
+      <div class="sidebar-big">BL</div>
+      <div class="sec-num">Est. 2021</div>
+    </div>
+    <div class="about-main">
+      <div><div class="ab-title">Who We Are</div><p class="ab-body">Blank Labs is a private research collective operating at the intersection of information infrastructure, applied systems research, and collaborative intelligence. We do not seek public attention. Our work is conducted through invitation-only access and governed by internal protocols unavailable to outside review.</p></div>
+      <div><div class="ab-title">Access Policy</div><p class="ab-body">Membership is non-transferable and non-public. Authentication is session-bound and passphrase-secured. All sessions are logged. Unauthorized access attempts are permanently recorded. If you believe you received this URL in error, please disregard it.</p></div>
+      <div><div class="ab-title">Infrastructure</div><p class="ab-body">Three active nodes: US-EAST-03, EU-CENTRAL-01, and AP-SOUTH-02. All traffic is internally routed. No third-party analytics, advertising, or data sharing. What is collected is governed by the internal data framework IDF-v4.</p></div>
+      <div><div class="ab-title">Contact</div><p class="ab-body">There is no public contact address. If you need to reach the team, you already know how. Access requests via the form on this page are the only external intake channel. Response is not guaranteed.</p></div>
+    </div>
+  </section>
+  <footer class="site-footer">
+    <div class="foot-l">Blank Labs — Private Network<br>Node: US-EAST-03 · Clearance: L0<br>All rights reserved. Not for public use.</div>
+    <div class="foot-r">Session <span id="footSID">—</span><br>Visit #<span id="footVisit">—</span> · <span id="footTime">—</span></div>
+  </footer>
+</main>
+
+<!-- LOGIN OVERLAY -->
+<div class="overlay" id="loginOverlay">
+  <div class="ov-topbar">
+    <div class="ov-title"><div class="ov-dot"></div>Authentication Required</div>
+    <button class="ov-close" onclick="closeLogin()">&#10005; Close</button>
+  </div>
+  <div class="login-wrap">
+    <div class="login-card">
+      <div class="lc-head">
+        <div class="lc-title">Member Access</div>
+        <div class="tok-lbl">Session Token (Encrypted)</div>
+        <div class="tok-val" id="loginToken">—</div>
+      </div>
+      <div class="lc-body">
+        <div><label class="f-lbl" for="lHandle">Handle / Alias</label><input class="f-input" type="text" id="lHandle" placeholder="anonymous" autocomplete="off"></div>
+        <div><label class="f-lbl" for="lPass">Decryption Passphrase</label><input class="f-input" type="password" id="lPass" placeholder="••••••••••••" autocomplete="off" onkeydown="if(event.key==='Enter')attemptLogin()"></div>
+        <div class="l-err" id="lErr"></div>
+        <button class="login-btn" id="lBtn" onclick="attemptLogin()">Authenticate</button>
+      </div>
+      <div class="lc-foot">All login attempts are recorded with session metadata.<br>Tokens expire after 7 days. Forgot your passphrase? Check your approval email.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+function genId(n,c='abcdef0123456789'){return Array.from({length:n},()=>c[Math.random()*c.length|0]).join('');}
+function generateToken(){return (genId(8)+'-'+genId(8)+'-'+genId(8)+'-'+genId(8)).toUpperCase();}
+const SID=sessionStorage.getItem('_bl_sid')||(()=>{const s=genId(16);sessionStorage.setItem('_bl_sid',s);return s;})();
+const TOKEN=generateToken();
+
+// Visitor logging
+(async()=>{
+  try{
+    await fetch('/api/visit',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        sid:SID,ua:navigator.userAgent,ref:document.referrer||'(direct)',
+        tz:Intl.DateTimeFormat().resolvedOptions().timeZone,
+        screen:screen.width+'×'+screen.height,lang:navigator.language,
+        platform:navigator.platform,cores:navigator.hardwareConcurrency,
+        mem:navigator.deviceMemory,touch:navigator.maxTouchPoints>0,
+        conn:navigator.connection?.effectiveType
+      })
+    });
+  }catch(_){}
+  try{
+    const s=await fetch('/api/stats').then(r=>r.json());
+    document.getElementById('visitNum').textContent=s.visits?.toLocaleString()||'—';
+    document.getElementById('memberNum').textContent=s.members||'—';
+    document.getElementById('footVisit').textContent=s.visits?.toLocaleString()||'—';
+  }catch(_){}
+})();
+
+// Clock
+function tick(){
+  const t=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  ['localClock','footTime'].forEach(id=>{const e=document.getElementById(id);if(e)e.textContent=t;});
+}
+setInterval(tick,1000);tick();
+document.getElementById('sidTag').textContent=SID.slice(0,8);
+document.getElementById('footSID').textContent=SID.slice(0,8);
+const d=new Date();
+document.getElementById('accessPeriod').textContent='Q'+Math.ceil((d.getMonth()+1)/3)+' '+d.getFullYear();
+
+// Ticker
+const TICKS=[{t:'Private network operational',hi:true},null,{t:'Node US-EAST-03 active'},null,{t:'Invitation-only access'},null,{t:'All sessions logged'},null,{t:'EU-CENTRAL-01 active'},null,{t:'AP-SOUTH-02 active'},null,{t:'Membership not open to the public'},null,{t:'Data framework IDF-v4 active'},null];
+const track=document.getElementById('tickerTrack');
+let h='';for(let r=0;r<2;r++){TICKS.forEach(t=>{if(t===null){h+='<span class="ticker-sep">·</span>';}else{h+=`<span class="ticker-item${t.hi?' hi':''}">${t.t}</span>`;}});}
+track.innerHTML=h;
+
+// Login overlay
+function openLogin(){
+  document.getElementById('loginToken').textContent=TOKEN;
+  document.getElementById('lErr').textContent='';
+  document.getElementById('lPass').value='';
+  document.getElementById('lHandle').value='';
+  document.getElementById('lPass').classList.remove('err');
+  const b=document.getElementById('lBtn');b.textContent='Authenticate';b.classList.remove('loading');
+  document.getElementById('loginOverlay').classList.add('open');
+}
+function closeLogin(){document.getElementById('loginOverlay').classList.remove('open');}
+function closeAll(){document.querySelectorAll('.overlay').forEach(o=>o.classList.remove('open'));}
+
+async function attemptLogin(){
+  const phrase=document.getElementById('lPass').value.trim();
+  const btn=document.getElementById('lBtn');
+  const err=document.getElementById('lErr');
+  const inp=document.getElementById('lPass');
+  err.textContent='';inp.classList.remove('err');
+  if(!phrase){err.textContent='Passphrase required.';return;}
+  btn.classList.add('loading');btn.textContent='Decrypting…';
+  try{
+    const r=await fetch('/api/login',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({passphrase:phrase})});
+    const data=await r.json();
+    if(data.ok){btn.textContent='Access Granted…';setTimeout(()=>window.location='/panel',600);}
+    else{
+      btn.classList.remove('loading');btn.textContent='Authenticate';
+      inp.classList.add('err');err.textContent=data.error||'ERR_DECRYPT_FAIL — passphrase rejected.';
+      // Glitch token
+      const tok=document.getElementById('loginToken');const orig=tok.textContent;let g=0;
+      const gi=setInterval(()=>{tok.textContent=genId(35,'-ABCDEF0123456789').toUpperCase().match(/.{8}/g).join('-');if(++g>7){clearInterval(gi);tok.textContent=orig;}},55);
+    }
+  }catch(e){btn.classList.remove('loading');btn.textContent='Authenticate';err.textContent='Connection error. Try again.';}
+}
+
+// Invite
+async function submitInvite(){
+  const email=document.getElementById('invEmail').value.trim();
+  const ref=document.getElementById('invRef').value.trim();
+  const status=document.getElementById('invStatus');
+  const btn=document.getElementById('invBtn');
+  document.getElementById('invEmail').classList.remove('err');
+  if(!email||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){
+    document.getElementById('invEmail').classList.add('err');
+    status.className='f-status err';status.textContent='Invalid address format.';return;
+  }
+  status.className='f-status wait';status.textContent='Submitting…';
+  btn.classList.add('loading');btn.textContent='Processing…';
+  try{
+    const r=await fetch('/api/invite',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,ref:ref||null})});
+    const data=await r.json();
+    if(r.ok){
+      status.className='f-status ok';status.textContent='Request queued for manual review.';
+      document.getElementById('invEmail').value='';document.getElementById('invRef').value='';
+    }else{status.className='f-status err';status.textContent=data.error||'Error submitting request.';}
+  }catch(_){status.className='f-status err';status.textContent='Connection error.';}
+  btn.classList.remove('loading');btn.textContent='Submit Request';
+}
+document.getElementById('invEmail').addEventListener('keydown',e=>{if(e.key==='Enter')submitInvite();});
+</script>
+</body></html>
