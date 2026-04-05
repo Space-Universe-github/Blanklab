@@ -1,31 +1,23 @@
 const express = require('express');
-const router = express.Router();
-const db = require('../lib/db');
+const router  = express.Router();
+const db      = require('../lib/db');
 const { requireMember } = require('../middleware/auth');
 const { marked } = require('marked');
 const sanitizeHtml = require('sanitize-html');
+const logger = require('../lib/logger');
 
-// Markdown renderer
+// Markdown renderer — allow common HTML tags
 function renderMarkdown(md) {
-  const html = marked.parse(md || '');
-  return sanitizeHtml(html, {
-    allowedTags: sanitizeHtml.defaults.allowedTags.concat([
-      'img',
-      'h1',
-      'h2',
-      'h3',
-      'h4',
-      'del',
-      'mark',
-      'sup',
-      'sub',
-    ]),
-    allowedAttributes: {
-      ...sanitizeHtml.defaults.allowedAttributes,
-      '*': ['class', 'style'],
-      img: ['src', 'alt', 'title'],
-    },
-  });
+  try {
+    const html = marked.parse(md || '');
+    return sanitizeHtml(html, {
+      allowedTags: sanitizeHtml.defaults.allowedTags.concat(['img','h1','h2','h3','h4','del','mark','sup','sub']),
+      allowedAttributes: { ...sanitizeHtml.defaults.allowedAttributes, '*': ['class','style'], img: ['src','alt','title'] },
+    });
+  } catch (err) {
+    logger.error('Markdown rendering failed', { error: err.message });
+    return 'Error rendering content.';
+  }
 }
 
 // All member routes require auth
@@ -33,197 +25,254 @@ router.use(requireMember);
 
 // ── Who am I ─────────────────────────────────────────────────────────────────
 router.get('/me', async (req, res) => {
-  const { data: member } = await db
-    .from('members')
-    .select('id,handle,email,joined_at,last_login,status,notify_drops')
-    .eq('id', req.member.memberId)
-    .single();
+  logger.info('Fetching member profile', { memberId: req.member.memberId });
+  try {
+    const { data: member, error: e1 } = await db
+      .from('members')
+      .select('id,handle,email,joined_at,last_login,status,notify_drops')
+      .eq('id', req.member.memberId)
+      .single();
 
-  const { count: readCount } = await db
-    .from('drop_reads')
-    .select('*', { count: 'exact', head: true })
-    .eq('member_id', req.member.memberId);
+    if (e1 || !member) {
+      logger.warn('Member profile not found', { memberId: req.member.memberId });
+      return res.status(404).json({ error: 'Member not found' });
+    }
 
-  const { count: totalDrops } = await db
-    .from('drops')
-    .select('*', { count: 'exact', head: true })
-    .eq('status', 'published');
+    const { count: readCount, error: e2 } = await db
+      .from('drop_reads')
+      .select('*', { count: 'exact', head: true })
+      .eq('member_id', req.member.memberId);
 
-  res.json({
-    ...member,
-    read_count: readCount || 0,
-    total_drops: totalDrops || 0,
-  });
+    const { count: totalDrops, error: e3 } = await db
+      .from('drops')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'published');
+
+    if (e2 || e3) logger.error('Profile stat errors', { errors: [e2, e3].filter(Boolean).map(e => e.message) });
+
+    res.json({ ...member, read_count: readCount || 0, total_drops: totalDrops || 0 });
+  } catch (err) {
+    logger.error('Failed to fetch member profile', { error: err.message, memberId: req.member.memberId });
+    res.status(500).json({ error: 'Database error' });
+  }
 });
 
 // ── Drop feed ─────────────────────────────────────────────────────────────────
 router.get('/drops', async (req, res) => {
   const { type, search } = req.query;
+  logger.info('Fetching drops for member', { memberId: req.member.memberId, type, search });
 
-  let query = db
-    .from('drops')
-    .select('id,issue_number,title,slug,type,excerpt,tags,published_at,external_link')
-    .eq('status', 'published')
-    .order('published_at', { ascending: false });
+  try {
+    let query = db
+      .from('drops')
+      .select('id,issue_number,title,slug,type,excerpt,tags,published_at,external_link')
+      .eq('status', 'published')
+      .order('published_at', { ascending: false });
 
-  if (type && type !== 'all') query = query.eq('type', type);
-  if (search) query = query.ilike('title', `%${search}%`);
+    if (type && type !== 'all') query = query.eq('type', type);
+    if (search) query = query.ilike('title', `%${search}%`);
 
-  const { data: drops } = await query;
+    const { data: drops, error: e1 } = await query;
+    if (e1) throw e1;
 
-  const { data: reads } = await db
-    .from('drop_reads')
-    .select('drop_id')
-    .eq('member_id', req.member.memberId);
+    // Get read status for this member
+    const { data: reads, error: e2 } = await db
+      .from('drop_reads')
+      .select('drop_id')
+      .eq('member_id', req.member.memberId);
 
-  const readSet = new Set((reads || []).map(r => r.drop_id));
+    const readSet = new Set((reads || []).map(r => r.drop_id));
 
-  const { data: reactions } = await db
-    .from('drop_reactions')
-    .select('drop_id,type')
-    .in('drop_id', (drops || []).map(d => d.id));
+    // Get reaction counts
+    const { data: reactions, error: e3 } = await db
+      .from('drop_reactions')
+      .select('drop_id,type')
+      .in('drop_id', (drops || []).map(d => d.id));
 
-  const reactionMap = {};
-  (reactions || []).forEach(r => {
-    if (!reactionMap[r.drop_id]) reactionMap[r.drop_id] = {};
-    reactionMap[r.drop_id][r.type] = (reactionMap[r.drop_id][r.type] || 0) + 1;
-  });
+    const reactionMap = {};
+    (reactions || []).forEach(r => {
+      if (!reactionMap[r.drop_id]) reactionMap[r.drop_id] = {};
+      reactionMap[r.drop_id][r.type] = (reactionMap[r.drop_id][r.type] || 0) + 1;
+    });
 
-  const { data: myReactions } = await db
-    .from('drop_reactions')
-    .select('drop_id,type')
-    .eq('member_id', req.member.memberId);
+    // Get member's own reactions
+    const { data: myReactions, error: e4 } = await db
+      .from('drop_reactions')
+      .select('drop_id,type')
+      .eq('member_id', req.member.memberId);
+    
+    if (e2 || e3 || e4) logger.error('Drop feed detail errors', { errors: [e2, e3, e4].filter(Boolean).map(e => e.message) });
 
-  const myReactionMap = {};
-  (myReactions || []).forEach(r => {
-    myReactionMap[r.drop_id] = r.type;
-  });
+    const myReactionMap = {};
+    (myReactions || []).forEach(r => { myReactionMap[r.drop_id] = r.type; });
 
-  res.json(
-    (drops || []).map(d => ({
+    res.json((drops || []).map(d => ({
       ...d,
       has_read: readSet.has(d.id),
       reactions: reactionMap[d.id] || {},
       my_reaction: myReactionMap[d.id] || null,
-    }))
-  );
+    })));
+  } catch (err) {
+    logger.error('Failed to fetch drops for member', { error: err.message, memberId: req.member.memberId });
+    res.status(500).json({ error: 'Database error' });
+  }
 });
 
 // ── Single drop ───────────────────────────────────────────────────────────────
 router.get('/drops/:slug', async (req, res) => {
-  const { data: drop } = await db
-    .from('drops')
-    .select('*')
-    .eq('slug', req.params.slug)
-    .eq('status', 'published')
-    .single();
+  logger.info('Fetching single drop', { slug: req.params.slug, memberId: req.member.memberId });
+  try {
+    const { data: drop, error: e1 } = await db
+      .from('drops')
+      .select('*')
+      .eq('slug', req.params.slug)
+      .eq('status', 'published')
+      .single();
 
-  if (!drop) return res.status(404).json({ error: 'Not found' });
+    if (e1 || !drop) {
+      logger.warn('Drop not found', { slug: req.params.slug });
+      return res.status(404).json({ error: 'Not found' });
+    }
 
-  const { data: existing } = await db
-    .from('drop_reads')
-    .select('id')
-    .eq('member_id', req.member.memberId)
-    .eq('drop_id', drop.id)
-    .single();
+    // Mark as read
+    const { data: existing } = await db
+      .from('drop_reads')
+      .select('id')
+      .eq('member_id', req.member.memberId)
+      .eq('drop_id', drop.id)
+      .maybeSingle();
 
-  if (!existing) {
-    await db.from('drop_reads').insert({
-      member_id: req.member.memberId,
-      drop_id: drop.id,
-    });
+    if (!existing) {
+      await db.from('drop_reads').insert({
+        member_id: req.member.memberId,
+        drop_id:   drop.id,
+      }).catch(err => logger.error('Failed to mark drop as read', { error: err.message }));
+    }
+
+    // Render markdown
+    drop.body_html = renderMarkdown(drop.body);
+
+    // Read count
+    const { count, error: e2 } = await db
+      .from('drop_reads')
+      .select('*', { count: 'exact', head: true })
+      .eq('drop_id', drop.id);
+    
+    if (e2) logger.error('Drop read count error', { error: e2.message });
+
+    res.json({ ...drop, read_count: count || 0 });
+  } catch (err) {
+    logger.error('Failed to fetch drop', { error: err.message, slug: req.params.slug });
+    res.status(500).json({ error: 'Database error' });
   }
-
-  drop.body_html = renderMarkdown(drop.body);
-
-  const { count } = await db
-    .from('drop_reads')
-    .select('*', { count: 'exact', head: true })
-    .eq('drop_id', drop.id);
-
-  res.json({ ...drop, read_count: count || 0 });
 });
 
 // ── Reactions ─────────────────────────────────────────────────────────────────
 router.post('/drops/:id/react', async (req, res) => {
-  const { type } = req.body;
+  const { type } = req.body; // 'noted' | 'signal' | 'archive' | null (remove)
   const dropId = req.params.id;
+  logger.info('Member reacting to drop', { dropId, memberId: req.member.memberId, type });
 
-  await db
-    .from('drop_reactions')
-    .delete()
-    .eq('member_id', req.member.memberId)
-    .eq('drop_id', dropId);
+  try {
+    // Delete existing reaction
+    await db.from('drop_reactions')
+      .delete()
+      .eq('member_id', req.member.memberId)
+      .eq('drop_id', dropId);
 
-  if (type) {
-    await db.from('drop_reactions').insert({
-      member_id: req.member.memberId,
-      drop_id: dropId,
-      type,
-    });
+    if (type) {
+      const { error } = await db.from('drop_reactions').insert({
+        member_id: req.member.memberId,
+        drop_id:   dropId,
+        type,
+      });
+      if (error) throw error;
+    }
+
+    res.json({ ok: true });
+  } catch (err) {
+    logger.error('Failed to react to drop', { error: err.message, dropId });
+    res.status(500).json({ error: 'Database error' });
   }
-
-  res.json({ ok: true });
 });
 
 // ── Inbox (messages from owner) ───────────────────────────────────────────────
 router.get('/inbox', async (req, res) => {
-  const { data: messages } = await db
-    .from('messages')
-    .select('*')
-    .eq('member_id', req.member.memberId)
-    .order('sent_at', { ascending: false });
+  logger.info('Fetching inbox', { memberId: req.member.memberId });
+  try {
+    const { data: messages, error: e1 } = await db
+      .from('messages')
+      .select('*')
+      .eq('member_id', req.member.memberId)
+      .order('sent_at', { ascending: false });
 
-  await db
-    .from('messages')
-    .update({ read_at: new Date().toISOString() })
-    .eq('member_id', req.member.memberId)
-    .is('read_at', null);
+    if (e1) throw e1;
 
-  res.json(messages || []);
+    // Mark as read
+    await db.from('messages')
+      .update({ read_at: new Date().toISOString() })
+      .eq('member_id', req.member.memberId)
+      .is('read_at', null)
+      .catch(err => logger.error('Failed to mark messages as read', { error: err.message }));
+
+    res.json(messages || []);
+  } catch (err) {
+    logger.error('Failed to fetch inbox', { error: err.message, memberId: req.member.memberId });
+    res.status(500).json({ error: 'Database error' });
+  }
 });
 
 // ── Announcements ─────────────────────────────────────────────────────────────
 router.get('/announcements', async (req, res) => {
-  const { data } = await db
-    .from('announcements')
-    .select('*')
-    .eq('active', true)
-    .order('created_at', { ascending: false })
-    .limit(5);
-
-  res.json(data || []);
+  try {
+    const { data, error } = await db
+      .from('announcements')
+      .select('*')
+      .eq('active', true)
+      .order('created_at', { ascending: false })
+      .limit(5);
+    if (error) throw error;
+    res.json(data || []);
+  } catch (err) {
+    logger.error('Failed to fetch announcements for member', { error: err.message });
+    res.status(500).json({ error: 'Database error' });
+  }
 });
 
 // ── Update notification prefs ─────────────────────────────────────────────────
 router.patch('/notifications', async (req, res) => {
   const { notify_drops } = req.body;
-
-  await db
-    .from('members')
-    .update({ notify_drops: !!notify_drops })
-    .eq('id', req.member.memberId);
-
-  res.json({ ok: true });
+  logger.info('Updating notification preferences', { memberId: req.member.memberId, notify_drops });
+  try {
+    const { error } = await db.from('members')
+      .update({ notify_drops: !!notify_drops })
+      .eq('id', req.member.memberId);
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (err) {
+    logger.error('Failed to update notification prefs', { error: err.message, memberId: req.member.memberId });
+    res.status(500).json({ error: 'Database error' });
+  }
 });
 
 // ── Unread counts ─────────────────────────────────────────────────────────────
 router.get('/unread', async (req, res) => {
-  const { count: unreadDrops } = await db
-    .rpc('count_unread_drops', { mid: req.member.memberId })
-    .single()
-    .catch(() => ({ count: 0 }));
+  try {
+    const [
+      { data: unreadDrops, error: e1 },
+      { count: unreadMessages, error: e2 }
+    ] = await Promise.all([
+      db.rpc('count_unread_drops', { mid: req.member.memberId }).maybeSingle(),
+      db.from('messages').select('*', { count: 'exact', head: true }).eq('member_id', req.member.memberId).is('read_at', null)
+    ]);
 
-  const { count: unreadMessages } = await db
-    .from('messages')
-    .select('*', { count: 'exact', head: true })
-    .eq('member_id', req.member.memberId)
-    .is('read_at', null);
+    if (e1 || e2) logger.error('Unread count errors', { errors: [e1, e2].filter(Boolean).map(e => e.message) });
 
-  res.json({
-    drops: unreadDrops || 0,
-    messages: unreadMessages || 0,
-  });
+    res.json({ drops: unreadDrops || 0, messages: unreadMessages || 0 });
+  } catch (err) {
+    logger.error('Failed to fetch unread counts', { error: err.message, memberId: req.member.memberId });
+    res.status(500).json({ error: 'Database error' });
+  }
 });
 
 module.exports = router;
