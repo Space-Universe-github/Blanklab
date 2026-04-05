@@ -503,3 +503,59 @@ router.get('/analytics', async (req, res) => {
   const days = parseInt(req.query.days) || 30;
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
   logger.info('Fetching visitor analytics', { days });
+
+           try {
+    const { data: visitors, error } = await db
+      .from('visitors')
+      .select('created_at,country,referrer,city')
+      .gte('created_at', since)
+      .order('created_at', { ascending: true });
+
+    if (error) throw error;
+
+    const byDay = {};
+    const byCountry = {};
+    const byRef = {};
+
+    (visitors||[]).forEach(v => {
+      const day = v.created_at.slice(0,10);
+      byDay[day] = (byDay[day]||0) + 1;
+      if (v.country) byCountry[v.country] = (byCountry[v.country]||0) + 1;
+      const ref = v.referrer || '(direct)';
+      byRef[ref] = (byRef[ref]||0) + 1;
+    });
+
+    const topCountries = Object.entries(byCountry).sort((a,b)=>b[1]-a[1]).slice(0,8);
+    const topReferrers = Object.entries(byRef).sort((a,b)=>b[1]-a[1]).slice(0,8);
+
+    res.json({ byDay, topCountries, topReferrers, total: visitors?.length || 0 });
+  } catch (err) {
+    logger.error('Failed to fetch analytics', { error: err.message });
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// ── Failed logins ─────────────────────────────────────────────────────────────
+router.get('/failed-logins', async (req, res) => {
+  try {
+    const { data, error } = await db.from('failed_logins').select('*').order('attempted_at',{ascending:false}).limit(50);
+    if (error) throw error;
+    res.json(data || []);
+  } catch (err) {
+    logger.error('Failed to fetch failed logins', { error: err.message });
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// ── Settings ──────────────────────────────────────────────────────────────────
+router.get('/settings', (req, res) => {
+  res.json({
+    invites_open:        process.env.INVITES_OPEN === 'true',
+    send_denial_emails:  process.env.SEND_DENIAL_EMAILS === 'true',
+    send_owner_alert:    process.env.SEND_OWNER_ALERT === 'true',
+    site_url:            process.env.SITE_URL,
+    from_email:          process.env.FROM_EMAIL,
+  });
+});
+
+module.exports = router;
