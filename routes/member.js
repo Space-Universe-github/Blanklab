@@ -1,149 +1,165 @@
-const express = require('express');
-const router  = express.Router();
-const db      = require('../lib/db');
-const { requireMember } = require('../middleware/auth');
-const { marked } = require('marked');
-const sanitizeHtml = require('sanitize-html');
+const express  = require('express');
+const jwt      = require('jsonwebtoken');
+const router   = express.Router();
+const db       = require('../lib/db');
+const { verifyPassphrase } = require('../lib/passphrase');
+const { geoLookup }        = require('../lib/geo');
+const { sendOwnerAlert }   = require('../lib/email');
+const { loginLimiter, inviteLimiter, visitLimiter } = require('../middleware/rateLimit');
 
-// Markdown renderer — allow common HTML tags
-function renderMarkdown(md) {
-  const html = marked.parse(md || '');
-  return sanitizeHtml(html, {
-    allowedTags: sanitizeHtml.defaults.allowedTags.concat(['img','h1','h2','h3','h4','del','mark','sup','sub']),
-    allowedAttributes: { ...sanitizeHtml.defaults.allowedAttributes, '*': ['class','style'], img: ['src','alt','title'] },
-  });
-}
-
-// All member routes require auth
-router.use(requireMember);
-
-// ── Who am I ─────────────────────────────────────────────────────────────────
-router.get('/me', async (req, res) => {
-  const { data: member } = await db
-    .from('members')
-    .select('id,handle,email,joined_at,last_login,status,notify_drops')
-    .eq('id', req.member.memberId)
-    .single();
-
-  const { count: readCount } = await db
-    .from('drop_reads')
-    .select('*', { count: 'exact', head: true })
-    .eq('member_id', req.member.memberId);
-
-  const { count: totalDrops } = await db
-    .from('drops')
-    .select('*', { count: 'exact', head: true })
-    .eq('status', 'published');
-
-  res.json({ ...member, read_count: readCount || 0, total_drops: totalDrops || 0 });
-});
-
-// ── Drop feed ─────────────────────────────────────────────────────────────────
-router.get('/drops', async (req, res) => {
-  const { type, search } = req.query;
-
-  let query = db
-    .from('drops')
-    .select('id,issue_number,title,slug,type,excerpt,tags,published_at,external_link')
-    .eq('status', 'published')
-    .order('published_at', { ascending: false });
-
-  if (type && type !== 'all') query = query.eq('type', type);
-  if (search) query = query.ilike('title', `%${search}%`);
-
-  const { data: drops } = await query;
-
-  // Get read status for this member
-  const { data: reads } = await db
-    .from('drop_reads')
-    .select('drop_id')
-    .eq('member_id', req.member.memberId);
-
-  const readSet = new Set((reads || []).map(r => r.drop_id));
-
-  // Get reaction counts
-  const { data: reactions } = await db
-    .from('drop_reactions')
-    .select('drop_id,type')
-    .in('drop_id', (drops || []).map(d => d.id));
-
-  const reactionMap = {};
-  (reactions || []).forEach(r => {
-    if (!reactionMap[r.drop_id]) reactionMap[r.drop_id] = {};
-    reactionMap[r.drop_id][r.type] = (reactionMap[r.drop_id][r.type] || 0) + 1;
-  });
-
-  // Get member's own reactions
-  const { data: myReactions } = await db
-    .from('drop_reactions')
-    .select('drop_id,type')
-    .eq('member_id', req.member.memberId);
-  const myReactionMap = {};
-  (myReactions || []).forEach(r => { myReactionMap[r.drop_id] = r.type; });
-
-  res.json((drops || []).map(d => ({
-    ...d,
-    has_read: readSet.has(d.id),
-    reactions: reactionMap[d.id] || {},
-    my_reaction: myReactionMap[d.id] || null,
-  })));
-});
-
-// ── Single drop ───────────────────────────────────────────────────────────────
-router.get('/drops/:slug', async (req, res) => {
-  const { data: drop } = await db
-    .from('drops')
-    .select('*')
-    .eq('slug', req.params.slug)
-    .eq('status', 'published')
-    .single();
-
-  if (!drop) return res.status(404).json({ error: 'Not found' });
-
-  // Mark as read
-  const { data: existing } = await db
-    .from('drop_reads')
-    .select('id')
-    .eq('member_id', req.member.memberId)
-    .eq('drop_id', drop.id)
-    .single();
-
-  if (!existing) {
-    await db.from('drop_reads').insert({
-      member_id: req.member.memberId,
-      drop_id:   drop.id,
+// ── Record visit ──────────────────────────────────────────────────────────────
+router.post('/visit', visitLimiter, async (req, res) => {
+  try {
+    const ip = req.headers['cf-connecting-ip'] || req.headers['x-forwarded-for']?.split(',')[0] || req.ip;
+    const geo = await geoLookup(ip);
+    await db.from('visitors').insert({
+      session_id:  req.body.sid       || null,
+      ip,
+      user_agent:  req.body.ua        || req.headers['user-agent'] || null,
+      referrer:    req.body.ref       || null,
+      timezone:    req.body.tz        || null,
+      screen:      req.body.screen    || null,
+      language:    req.body.lang      || null,
+      platform:    req.body.platform  || null,
+      cores:       req.body.cores     || null,
+      mem:         req.body.mem       || null,
+      touch:       req.body.touch     || false,
+      connection:  req.body.conn      || null,
+      city:        geo.city,
+      country:     geo.country,
+      country_code: geo.country_code,
+      region:      geo.region,
+      isp:         geo.isp,
     });
+    res.json({ ok: true });
+  } catch (e) {
+    res.json({ ok: false });
+  }
+});
+
+// ── Invite request ────────────────────────────────────────────────────────────
+router.post('/invite', inviteLimiter, async (req, res) => {
+  const { email, ref } = req.body;
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ error: 'Invalid email address.' });
+  }
+  if (process.env.INVITES_OPEN !== 'true') {
+    return res.status(403).json({ error: 'Invite requests are currently closed.' });
   }
 
-  // Render markdown
-  drop.body_html = renderMarkdown(drop.body);
+  const ip = req.headers['cf-connecting-ip'] || req.headers['x-forwarded-for']?.split(',')[0] || req.ip;
 
-  // Read count
-  const { count } = await db
-    .from('drop_reads')
-    .select('*', { count: 'exact', head: true })
-    .eq('drop_id', drop.id);
+  // Check duplicate
+  const { data: existing } = await db.from('invite_requests').select('id,status').eq('email', email).single();
+  if (existing) {
+    return res.json({ ok: true }); // silent — don't reveal if already submitted
+  }
 
-  res.json({ ...drop, read_count: count || 0 });
+  await db.from('invite_requests').insert({ email, referral_code: ref || null, ip, status: 'pending' });
+
+  if (process.env.SEND_OWNER_ALERT === 'true') {
+    sendOwnerAlert('New invite request', `Email: ${email}\nRef: ${ref || 'none'}\nIP: ${ip}`).catch(() => {});
+  }
+
+  res.json({ ok: true });
 });
 
-// ── Reactions ─────────────────────────────────────────────────────────────────
-router.post('/drops/:id/react', async (req, res) => {
-  const { type } = req.body; // 'noted' | 'signal' | 'archive' | null (remove)
-  const dropId = req.params.id;
+// ── Member login ──────────────────────────────────────────────────────────────
+router.post('/login', loginLimiter, async (req, res) => {
+  try {
+    const { passphrase } = req.body;
+    if (!passphrase) return res.status(400).json({ error: 'Passphrase required.' });
 
-  // Delete existing reaction
-  await db.from('drop_reactions')
-    .delete()
-    .eq('member_id', req.member.memberId)
-    .eq('drop_id', dropId);
+    const { data: members } = await db
+      .from('members')
+      .select('id,handle,email,passphrase_hash,status')
+      .eq('status', 'active');
 
-  if (type) {
-    await db.from('drop_reactions').insert({
-      member_id: req.member.memberId,
-      drop_id:   dropId,
-      type,
+    if (!members?.length) {
+      // Log failed attempt
+      const ip = req.headers['cf-connecting-ip'] || req.ip;
+      await db.from('failed_logins').insert({ ip, attempted_at: new Date().toISOString() }).catch(()=>{});
+      return res.status(401).json({ error: 'ERR_DECRYPT_FAIL — passphrase rejected.' });
+    }
+
+    let matched = null;
+    for (const m of members) {
+      const ok = await verifyPassphrase(passphrase, m.passphrase_hash);
+      if (ok) { matched = m; break; }
+    }
+
+    if (!matched) {
+      const ip = req.headers['cf-connecting-ip'] || req.ip;
+      await db.from('failed_logins').insert({ ip, attempted_at: new Date().toISOString() }).catch(()=>{});
+      return res.status(401).json({ error: 'ERR_DECRYPT_FAIL — passphrase rejected.' });
+    }
+
+    // Update last login
+    await db.from('members').update({ last_login: new Date().toISOString() }).eq('id', matched.id);
+
+    const token = jwt.sign(
+      { memberId: matched.id, handle: matched.handle, role: 'member' },
+      process.env.JWT_SECRET,
+      { expiresIn: process.env.JWT_EXPIRES || '7d' }
+    );
+
+    res.cookie('bl_member', token, {
+      httpOnly: true,
+      secure:   process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge:   7 * 24 * 60 * 60 * 1000,
     });
+
+    res.json({ ok: true, handle: matched.handle });
+  } catch (e) {
+    console.error('Login route error:', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── Owner login ───────────────────────────────────────────────────────────────
+router.post('/owner-login', loginLimiter, async (req, res) => {
+  const { passphrase } = req.body;
+  if (!passphrase) return res.status(400).json({ error: 'Passphrase required.' });
+
+  const ok = await verifyPassphrase(passphrase, process.env.OWNER_PASSPHRASE_HASH);
+  if (!ok) {
+    return res.status(401).json({ error: 'ERR_DECRYPT_FAIL — passphrase rejected.' });
+  }
+
+  const token = jwt.sign(
+    { role: 'owner' },
+    process.env.JWT_SECRET,
+    { expiresIn: '12h' }
+  );
+
+  res.cookie('bl_owner', token, {
+    httpOnly: true,
+    secure:   process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    maxAge:   12 * 60 * 60 * 1000,
+  });
+
+  res.json({ ok: true });
+});
+
+// ── Logout ────────────────────────────────────────────────────────────────────
+router.post('/logout', (req, res) => {
+  res.clearCookie('bl_member');
+  res.clearCookie('bl_owner');
+  res.json({ ok: true });
+});
+
+// ── Stats (public counts for landing page) ────────────────────────────────────
+router.get('/stats', async (req, res) => {
+  const [{ count: visits }, { count: members }] = await Promise.all([
+    db.from('visitors').select('*', { count: 'exact', head: true }),
+    db.from('members').select('*', { count: 'exact', head: true }).eq('status', 'active'),
+  ]);
+  res.json({ visits: visits || 0, members: members || 0 });
+});
+
+module.exports = router;    });
   }
 
   res.json({ ok: true });
