@@ -143,10 +143,14 @@ router.get('/drops/:slug', async (req, res) => {
       .maybeSingle();
 
     if (!existing) {
-      await db.from('drop_reads').insert({
-        member_id: req.member.memberId,
-        drop_id:   drop.id,
-      }).catch(err => logger.error('Failed to mark drop as read', { error: err.message }));
+      try {
+        await db.from('drop_reads').insert({
+          member_id: req.member.memberId,
+          drop_id:   drop.id,
+        });
+      } catch (err) {
+        logger.error('Failed to mark drop as read', { error: err.message });
+      }
     }
 
     // Render markdown
@@ -209,11 +213,14 @@ router.get('/inbox', async (req, res) => {
     if (e1) throw e1;
 
     // Mark as read
-    await db.from('messages')
-      .update({ read_at: new Date().toISOString() })
-      .eq('member_id', req.member.memberId)
-      .is('read_at', null)
-      .catch(err => logger.error('Failed to mark messages as read', { error: err.message }));
+    try {
+      await db.from('messages')
+        .update({ read_at: new Date().toISOString() })
+        .eq('member_id', req.member.memberId)
+        .is('read_at', null);
+    } catch (err) {
+      logger.error('Failed to mark messages as read', { error: err.message });
+    }
 
     res.json(messages || []);
   } catch (err) {
