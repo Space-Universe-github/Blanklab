@@ -1,47 +1,48 @@
 require('dotenv').config();
-
-for (const key of Object.keys(process.env)) {
-  const value = process.env[key];
-  if (typeof value === 'string' && value.length >= 2) {
-    const first = value[0];
-    const last = value[value.length - 1];
-    if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
-      process.env[key] = value.slice(1, -1);
-    }
-  }
-}
-
-const express = require('express');
+const express      = require('express');
 const cookieParser = require('cookie-parser');
-const path = require('path');
-const fs = require('fs');
-const jwt = require('jsonwebtoken');
+const path         = require('path');
+const fs           = require('fs');
+const logger       = require('./lib/logger');
+const bootstrap    = require('./lib/bootstrap');
 
 const app = express();
 
 // ── Middleware ──────────────────────────────────────────────────────────────
-app.set('trust proxy', 1);
+app.set('trust proxy', 1); // trust Cloudflare / Railway proxy
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
+
+// Request logging middleware
+app.use((req, res, next) => {
+  logger.info(`${req.method} ${req.url}`, { 
+    ip: req.headers['cf-connecting-ip'] || req.headers['x-forwarded-for']?.split(',')[0] || req.ip,
+    ua: req.headers['user-agent']
+  });
+  next();
+});
 
 // Static files
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ── API Routes ──────────────────────────────────────────────────────────────
-app.use('/api', require('./routes/public'));
+app.use('/api',       require('./routes/public'));
 app.use('/api/member', require('./routes/member'));
-app.use('/api/owner', require('./routes/owner'));
+app.use('/api/owner',  require('./routes/owner'));
 
 // ── Auth check helpers ──────────────────────────────────────────────────────
+const jwt = require('jsonwebtoken');
+
 function checkMember(req) {
   try {
     const t = req.cookies?.bl_member;
     if (!t) return null;
     const p = jwt.verify(t, process.env.JWT_SECRET);
     return p.role === 'member' ? p : null;
-  } catch {
-    return null;
+  } catch (err) { 
+    logger.debug('Member auth check failed', { error: err.message });
+    return null; 
   }
 }
 
@@ -51,47 +52,58 @@ function checkOwner(req) {
     if (!t) return null;
     const p = jwt.verify(t, process.env.JWT_SECRET);
     return p.role === 'owner' ? p : null;
-  } catch {
-    return null;
+  } catch (err) { 
+    logger.debug('Owner auth check failed', { error: err.message });
+    return null; 
   }
 }
 
 // ── Page routes ─────────────────────────────────────────────────────────────
+// Member panel
 app.get('/panel', (req, res) => {
-  if (!checkMember(req)) return res.redirect('/?auth=required');
+  if (!checkMember(req)) {
+    logger.warn('Unauthorized attempt to access member panel');
+    return res.redirect('/?auth=required');
+  }
   res.sendFile(path.join(__dirname, 'views', 'member.html'));
 });
 
+// Owner panel — route from env var, defaults to /owner-panel
 const ownerRoute = `/${process.env.OWNER_ROUTE || 'owner-panel'}`;
-const ownerLoginRoute = `${ownerRoute}-login`;
-
 app.get(ownerRoute, (req, res) => {
-  if (!checkOwner(req)) return res.redirect('/?auth=owner');
+  if (!checkOwner(req)) {
+    logger.warn('Unauthorized attempt to access owner panel');
+    return res.redirect('/?auth=owner');
+  }
   res.sendFile(path.join(__dirname, 'views', 'owner.html'));
 });
 
-app.get(ownerLoginRoute, (req, res) => {
+// Owner login page
+app.get(`${ownerRoute}-login`, (req, res) => {
+  // Serve owner login inline
   res.send(`<!DOCTYPE html>
-<html>
-<head>
+<html><head>
 <title>Blank Labs — Owner Access</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400&family=Barlow+Condensed:wght@500;600&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#0E0F0D;color:#F2EEE6;font-family:'DM Mono',monospace;display:flex;align-items:center;justify-content:center;min-height:100vh;}
+body{background:#0E0F0D;color:#F2EEE6;font-family:'DM Mono',monospace;
+  display:flex;align-items:center;justify-content:center;min-height:100vh;}
 .card{width:380px;border:1px solid #2e2e2e;padding:40px;}
-.logo{font-family:'Barlow Condensed',sans-serif;font-size:13px;letter-spacing:0.22em;text-transform:uppercase;margin-bottom:32px;color:#9A9890;}
+.logo{font-family:'Barlow Condensed',sans-serif;font-size:13px;letter-spacing:0.22em;
+  text-transform:uppercase;margin-bottom:32px;color:#9A9890;}
 .badge{font-size:8px;letter-spacing:0.15em;background:#8B2020;color:#F2EEE6;padding:3px 7px;margin-left:8px;}
 label{font-size:9px;letter-spacing:0.2em;text-transform:uppercase;color:#9A9890;display:block;margin-bottom:7px;}
-input{width:100%;background:#0f0f0f;border:1px solid #2e2e2e;color:#F2EEE6;font-family:'DM Mono',monospace;font-size:13px;padding:12px 14px;outline:none;margin-bottom:16px;}
+input{width:100%;background:#0f0f0f;border:1px solid #2e2e2e;color:#F2EEE6;
+  font-family:'DM Mono',monospace;font-size:13px;padding:12px 14px;outline:none;margin-bottom:16px;}
 input:focus{border-color:#4A8A84;}
-button{width:100%;background:#F2EEE6;color:#0E0F0D;font-family:'DM Mono',monospace;font-size:11px;letter-spacing:0.2em;text-transform:uppercase;padding:14px;border:none;cursor:pointer;}
+button{width:100%;background:#F2EEE6;color:#0E0F0D;font-family:'DM Mono',monospace;
+  font-size:11px;letter-spacing:0.2em;text-transform:uppercase;padding:14px;border:none;cursor:pointer;}
 button:hover{background:#4A8A84;color:#F2EEE6;}
 .err{font-size:10px;color:#c07070;margin-top:8px;min-height:14px;}
 </style>
 </head>
-<body>
-<div class="card">
+<body><div class="card">
   <div class="logo">Blank Labs <span class="badge">Owner</span></div>
   <label for="pp">Owner Passphrase</label>
   <input type="password" id="pp" placeholder="••••••••••••" onkeydown="if(event.key==='Enter')login()">
@@ -100,22 +112,13 @@ button:hover{background:#4A8A84;color:#F2EEE6;}
 </div>
 <script>
 async function login(){
-  const pp = document.getElementById('pp').value;
-  const r = await fetch('/api/owner-login', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ passphrase: pp })
-  });
-  const d = await r.json();
-  if (d.ok) {
-    window.location = '${ownerRoute}';
-  } else {
-    document.getElementById('err').textContent = d.error || 'Failed.';
-  }
+  const pp=document.getElementById('pp').value;
+  const r=await fetch('/api/owner-login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({passphrase:pp})});
+  const d=await r.json();
+  if(d.ok){window.location='${ownerRoute}';}
+  else{document.getElementById('err').textContent=d.error||'Failed.';}
 }
-</script>
-</body>
-</html>`);
+</script></body></html>`);
 });
 
 // Landing page
@@ -124,12 +127,28 @@ app.get('/', (req, res) => {
 });
 
 // ── 404 ─────────────────────────────────────────────────────────────────────
-app.use((req, res) => res.status(404).json({ error: 'Not found' }));
+app.use((req, res) => {
+  logger.warn('404 Not Found', { url: req.url });
+  res.status(404).json({ error: 'Not found' });
+});
+
+// ── Error handling ──────────────────────────────────────────────────────────
+app.use((err, req, res, next) => {
+  logger.error('Unhandled server error', { error: err.message, stack: err.stack });
+  res.status(500).json({ error: 'Internal server error' });
+});
 
 // ── Start ────────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`\n  BLANK LABS running on port ${PORT}`);
-  console.log(`  Owner panel: ${ownerRoute}`);
-  console.log(`  NODE_ENV: ${process.env.NODE_ENV}\n`);
-});
+
+// Initialize and Start
+(async () => {
+  // Run bootstrap
+  await bootstrap();
+
+  app.listen(PORT, () => {
+    logger.info(`BLANK LABS running on port ${PORT}`);
+    logger.info(`Owner panel: ${ownerRoute}`);
+    logger.info(`NODE_ENV: ${process.env.NODE_ENV}`);
+  });
+})();
