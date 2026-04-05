@@ -502,6 +502,4 @@ router.get('/visitors', async (req, res) => {
 router.get('/analytics', async (req, res) => {
   const days = parseInt(req.query.days) || 30;
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-  logger.info('Fetching visitor analytics', { days });
-
- 
+  logger.info('Fetching visitor analytics', { days }); 
