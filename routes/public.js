@@ -77,9 +77,12 @@ router.post('/invite', inviteLimiter, async (req, res) => {
     }
 
     if (process.env.SEND_OWNER_ALERT === 'true') {
-      sendOwnerAlert('New invite request', `Email: ${email}\nRef: ${ref || 'none'}\nIP: ${ip}`)
-        .then(() => logger.info('Owner alert sent for new invite', { email }))
-        .catch((err) => logger.error('Failed to send owner alert', { error: err.message, email }));
+      try {
+        await sendOwnerAlert('New invite request', `Email: ${email}\nRef: ${ref || 'none'}\nIP: ${ip}`);
+        logger.info('Owner alert sent for new invite', { email });
+      } catch (err) {
+        logger.error('Failed to send owner alert', { error: err.message, email });
+      }
     }
 
     logger.info('Invite request successful', { email });
@@ -115,7 +118,7 @@ router.post('/login', loginLimiter, async (req, res) => {
 
     if (!members?.length) {
       logger.warn('No active members found in database', { ip });
-      await db.from('failed_logins').insert({ ip, attempted_at: new Date().toISOString() }).catch(()=>{});
+      try { await db.from('failed_logins').insert({ ip, attempted_at: new Date().toISOString() }); } catch (e) {}
       return res.status(401).json({ error: 'ERR_DECRYPT_FAIL — passphrase rejected.' });
     }
 
@@ -127,7 +130,7 @@ router.post('/login', loginLimiter, async (req, res) => {
 
     if (!matched) {
       logger.warn('Login failed: Passphrase mismatch', { ip });
-      await db.from('failed_logins').insert({ ip, attempted_at: new Date().toISOString() }).catch(()=>{});
+      try { await db.from('failed_logins').insert({ ip, attempted_at: new Date().toISOString() }); } catch (e) {}
       return res.status(401).json({ error: 'ERR_DECRYPT_FAIL — passphrase rejected.' });
     }
 
